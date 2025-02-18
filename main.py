@@ -1,5 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 from datetime import datetime, timedelta
 
@@ -21,27 +23,51 @@ def get_articles(keyword):
 
     return news_list
 
-def find_last_page():
-    """현재 날짜에서 마지막 페이지 번호 찾기"""
+def get_last_page():
+    """현재 열린 페이지에서 마지막 페이지 번호 찾기 ('다음' 버튼이 없어질 때까지 확인)"""
     time.sleep(2)  # 페이지 로딩 대기
-    page_numbers = driver.find_elements(By.XPATH, "//a[@data-id]")  # 페이지 번호 요소 찾기
-    
-    if not page_numbers:
-        return 1  # 페이지가 1개뿐이라면 1페이지 반환
+    last_page = 1  # 기본값 설정
 
-    last_page = max([int(p.get_attribute("data-id")) for p in page_numbers])
+    while True:
+        # 현재 보이는 페이지 번호들 가져오기
+        pages = driver.find_elements(By.XPATH, "//div[@class='paginate']//a[@data-id]")
+        print(f"pages: {pages}")
+        # data-id 값 가져오기 (숫자로 변환 후 리스트 생성)
+        page_numbers = [int(p.get_attribute("data-id")) for p in pages if p.get_attribute("data-id") and p.get_attribute("data-id").isdigit()]
+        print(f"page_numbers: {page_numbers}")
+        if page_numbers:
+            last_page = max(last_page, max(page_numbers))  # 가장 큰 페이지 번호 업데이트
+
+        # '다음' 버튼이 있으면 클릭해서 다음 블록 확인
+        try:
+            next_button = driver.find_element(By.XPATH, "//a[@class='next']")
+            next_button.click()  # '다음' 버튼 클릭
+            time.sleep(2)  # 페이지 로딩 대기
+        except:
+            print(f"마지막 페이지: {last_page}")
+            break  # '다음' 버튼이 없으면 종료
+
     return last_page
+
 
 def crawl_news_by_date(date, keyword):
     """특정 날짜의 모든 뉴스 크롤링 (키워드 포함된 것만)"""
-    url = f"https://sports.news.naver.com/kbaseball/news/index.nhn?isphoto=N&type=latest&date={date}"
+    
+    # 해당 날짜의 첫 번째 페이지 URL 접근
+    url = f"https://sports.news.naver.com/kbaseball/news/index.nhn?isphoto=N&type=latest&date={date}&page=1"
     driver.get(url)
-    time.sleep(2)  # 첫 페이지 로딩 대기
+    time.sleep(2)  # 페이지 로딩 대기
 
-    last_page = find_last_page()  # 마지막 페이지 찾기
-    print(f"{date} - 마지막 페이지: {last_page}")
+    # 마지막 페이지 번호 찾기
+    last_page = get_last_page()
+    print(f"{date} - 총 {last_page} 페이지 존재")
 
+    # 1페이지부터 마지막 페이지까지 직접 URL을 변경해서 접근
     for page in range(1, last_page + 1):
+        url = f"https://sports.news.naver.com/kbaseball/news/index.nhn?isphoto=N&type=latest&date={date}&page={page}"
+        driver.get(url)
+        time.sleep(2)  # 페이지 로딩 대기
+
         print(f"{date} - {page}페이지 크롤링 중...")
         articles = get_articles(keyword)
 
@@ -49,20 +75,10 @@ def crawl_news_by_date(date, keyword):
             print(f"{idx}. {article['title']}")
             print(f"   링크: {article['link']}\n")
 
-        # 마지막 페이지 도달하면 종료
-        if page == last_page:
-            print(f"{date} - 마지막 페이지까지 크롤링 완료")
-            break  
-
-        # 다음 페이지 버튼 클릭
-        next_button = driver.find_element(By.XPATH, f"//a[@data-id='{page + 1}']")
-        next_button.click()
-        time.sleep(2)  # 페이지 로딩 대기
-
 # 실행 테스트
 if __name__ == "__main__":
     today = datetime.today()  # 오늘 날짜 가져오기
-    days_to_crawl = 7  # 최근 7일간 크롤링 
+    days_to_crawl = 5  # 최근 5일간 크롤링 
     keyword = "김택연"  # 찾고 싶은 키워드
 
     for i in range(1, days_to_crawl + 1):  # 어제부터 최근 N일간 크롤링
